@@ -1,8 +1,9 @@
 mod ai;
 mod calendar;
+mod commands;
 mod db;
 mod email;
-mod oauth;
+pub mod oauth;
 mod scheduler;
 
 use tauri::{
@@ -20,6 +21,21 @@ pub fn run() {
                 .add_migrations("sqlite:kairos.db", db::migrations())
                 .build(),
         )
+        .manage(commands::OAuthConfig {
+            google_client_id: std::env::var("KAIROS_GOOGLE_CLIENT_ID").unwrap_or_default(),
+            google_client_secret: std::env::var("KAIROS_GOOGLE_CLIENT_SECRET")
+                .unwrap_or_default(),
+            microsoft_client_id: std::env::var("KAIROS_MICROSOFT_CLIENT_ID")
+                .unwrap_or_default(),
+            microsoft_client_secret: std::env::var("KAIROS_MICROSOFT_CLIENT_SECRET")
+                .unwrap_or_default(),
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_auth_url,
+            commands::handle_oauth_callback,
+            commands::disconnect_account,
+            commands::get_valid_token,
+        ])
         .setup(|app| {
             oauth::init();
             email::init();
