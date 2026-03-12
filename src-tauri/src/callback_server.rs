@@ -185,24 +185,27 @@ fn parse_callback_params(request: &str) -> Option<(String, String)> {
 
 /// Minimal percent-decoding for query parameters.
 fn url_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
+    let mut bytes = Vec::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
+                bytes.push(byte);
             } else {
-                result.push('%');
-                result.push_str(&hex);
+                bytes.push(b'%');
+                bytes.extend_from_slice(hex.as_bytes());
             }
         } else if c == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(c);
+            // ASCII characters from the query string
+            let mut buf = [0u8; 4];
+            let encoded = c.encode_utf8(&mut buf);
+            bytes.extend_from_slice(encoded.as_bytes());
         }
     }
-    result
+    String::from_utf8(bytes).unwrap_or_else(|_| s.to_string())
 }
 
 /// Escape HTML entities to prevent XSS in response pages.

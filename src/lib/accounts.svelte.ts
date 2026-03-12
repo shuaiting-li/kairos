@@ -3,7 +3,7 @@ import type { Account, Provider } from "./types";
 /**
  * Reactive accounts store backed by SQLite via tauri-plugin-sql.
  *
- * On startup, loadAccountsFromDb() is called to restore persisted accounts.
+ * On startup, loadAccounts() is called to restore persisted accounts.
  * When an OAuth callback succeeds, the callback_server emits an
  * "account-connected" Tauri event; the frontend listens for it, persists
  * the new account to SQLite, and adds it to this store.
