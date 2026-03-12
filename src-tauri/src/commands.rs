@@ -16,7 +16,7 @@ pub struct OAuthConfig {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Returns the OAuth authorisation URL the frontend should open in the browser.
+/// Returns the OAuth authorization URL the frontend should open in the browser.
 #[tauri::command]
 pub fn get_auth_url(
     config: State<'_, OAuthConfig>,

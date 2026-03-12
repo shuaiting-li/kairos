@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Account, Provider } from "./types";
 
 /**
- * Get the OAuth authorisation URL for a provider.
+ * Get the OAuth authorization URL for a provider.
  * The frontend should open this URL in the system browser.
  */
 export async function getAuthUrl(provider: Provider): Promise<string> {
@@ -11,7 +11,7 @@ export async function getAuthUrl(provider: Provider): Promise<string> {
 
 /**
  * Exchange an OAuth callback (state + code) for an Account.
- * Called after the localhost redirect captures the authorisation code.
+ * Called after the localhost redirect captures the authorization code.
  */
 export async function handleOAuthCallback(
 	state: string,

@@ -1,10 +1,6 @@
 <script lang="ts">
-	import {
-		getAccounts,
-		addAccount,
-		removeAccount,
-	} from "$lib/accounts.svelte";
-	import { getAuthUrl, handleOAuthCallback, disconnectAccount } from "$lib/api";
+	import { getAccounts, removeAccount } from "$lib/accounts.svelte";
+	import { getAuthUrl, disconnectAccount } from "$lib/api";
 	import type { Provider } from "$lib/types";
 
 	let connecting: Provider | null = $state(null);
@@ -40,14 +36,6 @@
 		} catch (e) {
 			error = `Failed to disconnect: ${e}`;
 		}
-	}
-
-	function providerLabel(provider: Provider): string {
-		return provider === "google" ? "Google" : "Microsoft";
-	}
-
-	function providerIcon(provider: Provider): string {
-		return provider === "google" ? "🔵" : "🟦";
 	}
 </script>
 

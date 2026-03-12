@@ -171,7 +171,7 @@ pub fn peek_pending_provider(state: &str) -> Result<Provider, OAuthError> {
 }
 
 // ---------------------------------------------------------------------------
-// Build the authorisation URL the user should visit
+// Build the authorization URL the user should visit
 // ---------------------------------------------------------------------------
 
 pub fn build_auth_url(provider: Provider, client_id: &str) -> (String, String) {
@@ -210,7 +210,7 @@ pub fn build_auth_url(provider: Provider, client_id: &str) -> (String, String) {
 }
 
 // ---------------------------------------------------------------------------
-// Exchange authorisation code for tokens
+// Exchange authorization code for tokens
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
