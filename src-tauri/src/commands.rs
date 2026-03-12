@@ -39,40 +39,18 @@ pub async fn handle_oauth_callback(
     state: String,
     code: String,
 ) -> Result<Account, OAuthError> {
-    let (client_id, client_secret) = {
-        // We don't know the provider yet — it's encoded in the state.
-        // exchange_code will look it up from the pending-states map.
-        // We need both sets of credentials available.
-        // exchange_code internally resolves the provider from the state param.
-        //
-        // For simplicity, we pass all credentials and let exchange_code pick.
-        // But exchange_code needs a single pair, so we try to resolve first.
-        //
-        // Actually, exchange_code pulls the provider from the pending map, so
-        // we just need to know *after* the exchange which provider it was.
-        // The cleanest approach: do a two-step flow.
-        ("", "")
-    };
-    let _ = (client_id, client_secret);
-
-    // We need to figure out the provider from the pending state, but
-    // exchange_code consumes it. Instead, we peek at the provider first.
-    // Since we can't peek without consuming, we'll just try with both sets
-    // of credentials — exchange_code resolves the provider internally.
-
-    // Try the exchange (it will find the provider from the state map)
-    // First, let's get a temporary clone of config values to avoid borrow issues
-    let google_id = config.google_client_id.clone();
-    let google_secret = config.google_client_secret.clone();
-    let ms_id = config.microsoft_client_id.clone();
-    let ms_secret = config.microsoft_client_secret.clone();
-
-    // We need to know the provider for the client_id/secret, but the state
-    // map has it. Let's use a helper that peeks at the provider.
-    let provider = peek_provider(&state)?;
+    // Peek at the provider from the pending-state map so we can select
+    // the correct client credentials before exchange_code consumes it.
+    let provider = oauth::peek_pending_provider(&state)?;
     let (cid, csecret) = match provider {
-        Provider::Google => (google_id, google_secret),
-        Provider::Microsoft => (ms_id, ms_secret),
+        Provider::Google => (
+            config.google_client_id.clone(),
+            config.google_client_secret.clone(),
+        ),
+        Provider::Microsoft => (
+            config.microsoft_client_id.clone(),
+            config.microsoft_client_secret.clone(),
+        ),
     };
 
     let (provider, token_data) = oauth::exchange_code(&state, &code, &cid, &csecret).await?;
@@ -100,20 +78,6 @@ pub async fn handle_oauth_callback(
     };
 
     Ok(account)
-}
-
-/// Helper to peek at the provider for a given state without consuming it.
-fn peek_provider(state: &str) -> Result<Provider, OAuthError> {
-    // We need to peek into the PENDING_STATES map.
-    // Since it's private in oauth.rs, we'll use a different approach:
-    // Try to build a dummy exchange and catch. Actually, the cleanest way
-    // is to expose a peek function from oauth.rs.
-    //
-    // For now, we'll match both — this is safe because exchange_code
-    // internally resolves the provider.
-    //
-    // Actually let's just expose a peek from the oauth module.
-    oauth::peek_pending_provider(state)
 }
 
 /// Disconnect an account: remove tokens from keychain.

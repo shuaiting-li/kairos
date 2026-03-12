@@ -574,4 +574,25 @@ mod tests {
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("Invalid provider: test"));
     }
+
+    #[test]
+    fn peek_pending_provider_returns_correct_provider() {
+        init();
+        let pkce = generate_pkce();
+        store_pending("peek-test-state", Provider::Microsoft, pkce);
+
+        let provider = peek_pending_provider("peek-test-state").unwrap();
+        assert_eq!(provider, Provider::Microsoft);
+
+        // Peek does NOT consume — take should still work
+        let taken = take_pending("peek-test-state");
+        assert!(taken.is_some());
+    }
+
+    #[test]
+    fn peek_pending_provider_returns_error_for_unknown_state() {
+        init();
+        let result = peek_pending_provider("unknown-state");
+        assert!(result.is_err());
+    }
 }
