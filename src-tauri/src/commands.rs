@@ -39,9 +39,9 @@ pub async fn handle_oauth_callback(
     state: String,
     code: String,
 ) -> Result<Account, OAuthError> {
-    // Peek at the provider from the pending-state map so we can select
-    // the correct client credentials before exchange_code consumes it.
-    let provider = oauth::peek_pending_provider(&state)?;
+    // Atomically take pending state — single operation, no race condition
+    let (provider, pkce) = oauth::take_pending_state(&state)?;
+
     let (cid, csecret) = match provider {
         Provider::Google => (
             config.google_client_id.clone(),
@@ -53,7 +53,8 @@ pub async fn handle_oauth_callback(
         ),
     };
 
-    let (provider, token_data) = oauth::exchange_code(&state, &code, &cid, &csecret).await?;
+    let token_data =
+        oauth::exchange_code(provider, &code, &cid, &csecret, &pkce.verifier).await?;
 
     // Fetch the user's email address
     let email = oauth::fetch_user_email(provider, &token_data.access_token).await?;
@@ -81,6 +82,8 @@ pub async fn handle_oauth_callback(
 }
 
 /// Disconnect an account: remove tokens from keychain.
+/// The frontend is responsible for also removing the row from SQLite
+/// and updating the UI store.
 #[tauri::command]
 pub fn disconnect_account(account_id: String) -> Result<(), OAuthError> {
     oauth::delete_token(&account_id)?;

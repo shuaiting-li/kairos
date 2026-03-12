@@ -1,10 +1,15 @@
 import type { Account, Provider } from "./types";
 
 /**
- * Simple reactive accounts store.
- * In a real app this would sync with the SQLite accounts table via
- * tauri-plugin-sql. For now it uses an in-memory array wrapped with
- * Svelte 5 runes ($state).
+ * Reactive accounts store backed by SQLite via tauri-plugin-sql.
+ *
+ * On startup, loadAccountsFromDb() is called to restore persisted accounts.
+ * When an OAuth callback succeeds, the callback_server emits an
+ * "account-connected" Tauri event; the frontend listens for it, persists
+ * the new account to SQLite, and adds it to this store.
+ *
+ * On disconnect, the frontend removes the account from both SQLite and
+ * this store.
  */
 
 let accounts: Account[] = $state([]);

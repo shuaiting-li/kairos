@@ -1,7 +1,16 @@
 <script lang="ts">
-	import { getAccounts, removeAccount } from "$lib/accounts.svelte";
+	import { onMount, onDestroy } from "svelte";
+	import {
+		getAccounts,
+		addAccount,
+		removeAccount,
+		setAccounts,
+	} from "$lib/accounts.svelte";
 	import { getAuthUrl, disconnectAccount } from "$lib/api";
-	import type { Provider } from "$lib/types";
+	import { loadAccounts, insertAccount, deleteAccount } from "$lib/db";
+	import { openUrl } from "@tauri-apps/plugin-opener";
+	import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+	import type { Account, Provider } from "$lib/types";
 
 	let connecting: Provider | null = $state(null);
 	let error: string | null = $state(null);
@@ -14,14 +23,53 @@
 		accounts.filter((a) => a.provider === "microsoft"),
 	);
 
+	let unlistenConnected: UnlistenFn | null = null;
+	let unlistenError: UnlistenFn | null = null;
+
+	onMount(async () => {
+		// Load persisted accounts from SQLite on startup
+		try {
+			const stored = await loadAccounts();
+			setAccounts(stored);
+		} catch (e) {
+			// SQLite may not be available in dev/test — log but don't crash
+			console.warn("Could not load accounts from database:", e);
+		}
+
+		// Listen for successful OAuth callbacks from the Rust callback server
+		unlistenConnected = await listen<Account>(
+			"account-connected",
+			async (event) => {
+				const account = event.payload;
+				try {
+					await insertAccount(account);
+				} catch (e) {
+					console.warn("Could not persist account to database:", e);
+				}
+				addAccount(account);
+				connecting = null;
+			},
+		);
+
+		// Listen for OAuth errors
+		unlistenError = await listen<string>("account-error", (event) => {
+			error = `OAuth failed: ${event.payload}`;
+			connecting = null;
+		});
+	});
+
+	onDestroy(() => {
+		unlistenConnected?.();
+		unlistenError?.();
+	});
+
 	async function connect(provider: Provider) {
 		error = null;
 		connecting = provider;
 		try {
 			const url = await getAuthUrl(provider);
-			// Open the OAuth URL in the system browser.
-			// The localhost callback server (Rust side) will handle the redirect.
-			window.open(url, "_blank");
+			// Open the OAuth URL in the system browser via tauri_plugin_opener
+			await openUrl(url);
 		} catch (e) {
 			error = `Failed to start ${provider} connection: ${e}`;
 			connecting = null;
@@ -32,6 +80,12 @@
 		error = null;
 		try {
 			await disconnectAccount(accountId);
+			// Remove from SQLite (Issue #3: complete credential cleanup)
+			try {
+				await deleteAccount(accountId);
+			} catch (e) {
+				console.warn("Could not remove account from database:", e);
+			}
 			removeAccount(accountId);
 		} catch (e) {
 			error = `Failed to disconnect: ${e}`;

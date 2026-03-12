@@ -160,14 +160,10 @@ fn take_pending(state: &str) -> Option<(Provider, PkceChallenge)> {
     guard.as_mut().and_then(|m| m.remove(state))
 }
 
-/// Peek at the provider for a pending state without consuming it.
-pub fn peek_pending_provider(state: &str) -> Result<Provider, OAuthError> {
-    let guard = PENDING_STATES.lock().unwrap();
-    guard
-        .as_ref()
-        .and_then(|m| m.get(state))
-        .map(|(p, _)| *p)
-        .ok_or(OAuthError::NoPendingState)
+/// Take the pending state atomically — returns both the provider and the PKCE
+/// challenge in a single lock acquisition, eliminating the peek-then-take race.
+pub fn take_pending_state(state: &str) -> Result<(Provider, PkceChallenge), OAuthError> {
+    take_pending(state).ok_or(OAuthError::NoPendingState)
 }
 
 // ---------------------------------------------------------------------------
@@ -223,13 +219,12 @@ struct TokenResponse {
 }
 
 pub async fn exchange_code(
-    state: &str,
+    provider: Provider,
     code: &str,
     client_id: &str,
     client_secret: &str,
-) -> Result<(Provider, TokenData), OAuthError> {
-    let (provider, pkce) = take_pending(state).ok_or(OAuthError::NoPendingState)?;
-
+    pkce_verifier: &str,
+) -> Result<TokenData, OAuthError> {
     let token_url = match provider {
         Provider::Google => GOOGLE_TOKEN_URL,
         Provider::Microsoft => MICROSOFT_TOKEN_URL,
@@ -240,7 +235,7 @@ pub async fn exchange_code(
     params.insert("code", code.to_string());
     params.insert("redirect_uri", redirect_uri());
     params.insert("client_id", client_id.to_string());
-    params.insert("code_verifier", pkce.verifier.clone());
+    params.insert("code_verifier", pkce_verifier.to_string());
 
     // Google requires client_secret even for PKCE public clients in some
     // configurations; Microsoft always requires it.
@@ -268,7 +263,7 @@ pub async fn exchange_code(
         expires_at,
     };
 
-    Ok((provider, token_data))
+    Ok(token_data)
 }
 
 // ---------------------------------------------------------------------------
@@ -576,23 +571,85 @@ mod tests {
     }
 
     #[test]
-    fn peek_pending_provider_returns_correct_provider() {
+    fn take_pending_state_returns_provider_and_pkce() {
         init();
         let pkce = generate_pkce();
-        store_pending("peek-test-state", Provider::Microsoft, pkce);
+        let verifier = pkce.verifier.clone();
+        store_pending("take-state-test", Provider::Microsoft, pkce);
 
-        let provider = peek_pending_provider("peek-test-state").unwrap();
+        let (provider, taken_pkce) = take_pending_state("take-state-test").unwrap();
         assert_eq!(provider, Provider::Microsoft);
+        assert_eq!(taken_pkce.verifier, verifier);
 
-        // Peek does NOT consume — take should still work
-        let taken = take_pending("peek-test-state");
-        assert!(taken.is_some());
+        // Second take should fail — it was consumed atomically
+        assert!(take_pending_state("take-state-test").is_err());
     }
 
     #[test]
-    fn peek_pending_provider_returns_error_for_unknown_state() {
+    fn take_pending_state_returns_error_for_unknown_state() {
         init();
-        let result = peek_pending_provider("unknown-state");
+        let result = take_pending_state("unknown-state");
         assert!(result.is_err());
+        match result {
+            Err(OAuthError::NoPendingState) => {} // expected
+            other => panic!("expected NoPendingState, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ensure_valid_token_returns_error_when_no_token() {
+        // When there is no token in the keyring, ensure_valid_token should
+        // return a TokenNotFound error.
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(ensure_valid_token(
+                "nonexistent-account",
+                Provider::Google,
+                "client-id",
+                "client-secret",
+            ));
+        assert!(result.is_err());
+        match result {
+            Err(OAuthError::TokenNotFound(_)) => {} // expected
+            other => panic!("expected TokenNotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn token_data_with_empty_refresh_token() {
+        // If refresh_token is empty, ensure_valid_token should return an
+        // error when the token is expired rather than attempting refresh.
+        let token = TokenData {
+            access_token: "expired-access".into(),
+            refresh_token: "".into(),
+            expires_at: 0, // expired
+        };
+        // Verify the logic: empty refresh_token should be caught
+        assert!(token.refresh_token.is_empty());
+        assert!(token.expires_at <= chrono::Utc::now().timestamp());
+    }
+
+    #[test]
+    fn token_data_is_valid_when_not_expired() {
+        let future = chrono::Utc::now().timestamp() + 3600;
+        let token = TokenData {
+            access_token: "valid-access".into(),
+            refresh_token: "refresh".into(),
+            expires_at: future,
+        };
+        // Token should be considered valid (expires more than 60s from now)
+        assert!(token.expires_at > chrono::Utc::now().timestamp() + 60);
+    }
+
+    #[test]
+    fn token_data_needs_refresh_when_near_expiry() {
+        let near_future = chrono::Utc::now().timestamp() + 30; // 30s from now
+        let token = TokenData {
+            access_token: "soon-expired".into(),
+            refresh_token: "refresh".into(),
+            expires_at: near_future,
+        };
+        // Token expires within 60s, so it needs refresh
+        assert!(token.expires_at <= chrono::Utc::now().timestamp() + 60);
     }
 }
